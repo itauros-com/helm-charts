@@ -1,0 +1,183 @@
+suite: deployment
+templates:
+  - templates/deployment.yaml
+release:
+  name: orders
+  namespace: shop
+set:
+  image.repository: registry.example.com/orders
+  image.tag: v1.0.0
+tests:
+  - it: names everything after the release
+    asserts:
+      - equal:
+          path: metadata.name
+          value: orders
+      - equal:
+          path: spec.template.spec.containers[0].name
+          value: orders
+      - equal:
+          path: spec.selector.matchLabels
+          value:
+            app.kubernetes.io/name: orders
+            app.kubernetes.io/instance: orders
+
+  - it: pins the workload name with nameOverride
+    release:
+      name: shop-orders-api
+    set:
+      nameOverride: orders
+    asserts:
+      # The release name already contains the name, so it is not repeated.
+      - equal:
+          path: metadata.name
+          value: shop-orders-api
+      - equal:
+          path: spec.selector.matchLabels["app.kubernetes.io/name"]
+          value: orders
+
+  - it: tracks the image tag in the version label
+    asserts:
+      - equal:
+          path: metadata.labels["app.kubernetes.io/version"]
+          value: v1.0.0
+      - equal:
+          path: metadata.labels["helm.sh/chart"]
+          value: microservice-0.1.0
+
+  - it: renders tag and digest together
+    set:
+      image.digest: sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].image
+          value: registry.example.com/orders:v1.0.0@sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
+
+  - it: requires an image reference
+    set:
+      image.tag: ""
+    asserts:
+      - failedTemplate:
+          errorMessage: image.tag or image.digest is required
+
+  - it: omits replicas when autoscaling
+    set:
+      autoscaling.enabled: true
+    asserts:
+      - notExists:
+          path: spec.replicas
+
+  - it: renders env sorted, then extraEnv
+    set:
+      env:
+        B_VAR: b
+        A_VAR: 1
+      extraEnv:
+        - name: DB_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: creds
+              key: password
+        - name: POD_IP
+          valueFrom:
+            fieldRef:
+              fieldPath: status.podIP
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].env
+          value:
+            - name: A_VAR
+              value: "1"
+            - name: B_VAR
+              value: b
+            - name: DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: creds
+                  key: password
+            - name: POD_IP
+              valueFrom:
+                fieldRef:
+                  fieldPath: status.podIP
+
+  - it: passes extraEnvFrom through verbatim
+    set:
+      extraEnvFrom:
+        - configMapRef:
+            name: cfg
+          prefix: CFG_
+        - secretRef:
+            name: db
+            optional: true
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].envFrom
+          value:
+            - configMapRef:
+                name: cfg
+              prefix: CFG_
+            - secretRef:
+                name: db
+                optional: true
+
+  - it: has no env blocks when nothing is set
+    asserts:
+      - notExists:
+          path: spec.template.spec.containers[0].env
+      - notExists:
+          path: spec.template.spec.containers[0].envFrom
+
+  - it: has no pod annotations by default
+    asserts:
+      - notExists:
+          path: spec.template.metadata.annotations
+
+  - it: renders default HTTP probes on the http port
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].startupProbe
+          value:
+            httpGet:
+              path: /healthz
+              port: http
+            initialDelaySeconds: 0
+            periodSeconds: 2
+            failureThreshold: 30
+      - equal:
+          path: spec.template.spec.containers[0].readinessProbe.httpGet.path
+          value: /readyz
+
+  - it: uses a probe spec verbatim
+    set:
+      probes.liveness.spec:
+        exec:
+          command: ["/bin/healthcheck"]
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].livenessProbe
+          value:
+            exec:
+              command: ["/bin/healthcheck"]
+
+  - it: passes command and args through
+    set:
+      command: ["/app"]
+      args: ["serve"]
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].command
+          value: ["/app"]
+      - equal:
+          path: spec.template.spec.containers[0].args
+          value: ["serve"]
+
+  - it: renders extra containers through tpl
+    set:
+      extraContainers:
+        - name: sidecar
+          image: busybox
+          args: ['{{ include "microservice.fullname" . }}']
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[1].args[0]
+          value: orders

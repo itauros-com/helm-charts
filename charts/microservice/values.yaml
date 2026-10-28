@@ -1,0 +1,227 @@
+# Default values for the microservice chart.
+#
+# Defaults are hardened and opinionated (non-root uid 65532, read-only root
+# filesystem, /healthz + /readyz probes on port 8080). Each workload only
+# sets what differs: image, env, and the occasional toggle.
+
+image:
+  # Required.
+  repository: ""
+  # Required unless digest is set. There is no appVersion fallback: the
+  # chart version is shared by every workload.
+  tag: ""
+  # Optional, e.g. sha256:abc... Rendered as repository[:tag]@digest.
+  digest: ""
+  pullPolicy: IfNotPresent
+
+imagePullSecrets: [] # - name: registry-cred
+
+# Workload name, used for labels, container name and resource names.
+# Defaults to the release name. Changing it on a live release changes the
+# Deployment selector, which Kubernetes rejects: pin it when migrating.
+nameOverride: ""
+fullnameOverride: ""
+
+# Optional app.kubernetes.io/part-of and app.kubernetes.io/component labels.
+partOf: ""
+component: ""
+# Extra labels added to every resource (not to selectors).
+commonLabels: {}
+
+replicaCount: 1
+
+# Deployment strategy, passed through verbatim.
+strategy: {}
+
+# Container entrypoint overrides. Empty means the image defaults.
+command: []
+args: []
+
+# Port named `http` on the container. Set to null for workers that expose
+# nothing (and disable service + HTTP probes).
+containerPort: 8080
+# Additional container ports, passed through verbatim.
+extraPorts: []
+  # - name: grpc
+  #   containerPort: 9090
+  #   protocol: TCP
+
+service:
+  enabled: true
+  type: ClusterIP
+  port: 80
+  # Optional hint for meshes / Gateway API (e.g. http, kubernetes.io/h2c).
+  appProtocol: ""
+  annotations: {}
+
+# -------- Configuration --------
+#
+#   env           plain values (map), rendered sorted by name
+#   extraEnv      raw `env` entries: valueFrom secretKeyRef / configMapKeyRef
+#                 / fieldRef / resourceFieldRef
+#   extraEnvFrom  raw `envFrom` entries: load every key of a Secret or
+#                 ConfigMap as env vars
+#
+# The chart never creates Secrets: manage them outside (SealedSecrets,
+# External Secrets, ...) and reference them here.
+#
+# K8s gives `env` precedence over `envFrom`: don't set in `env` a variable
+# that is meant to come from a Secret, or the literal will shadow it.
+
+env: {}
+  # APP_LOG_LEVEL: info
+
+extraEnv: []
+  # - name: DATABASE_PASSWORD
+  #   valueFrom:
+  #     secretKeyRef:
+  #       name: my-db-credentials
+  #       key: password
+  # - name: POD_IP
+  #   valueFrom:
+  #     fieldRef:
+  #       fieldPath: status.podIP
+
+extraEnvFrom: []
+  # - secretRef:
+  #     name: my-db-credentials
+  # - configMapRef:
+  #     name: my-config
+  #   prefix: CFG_
+
+resources:
+  requests:
+    cpu: 50m
+    memory: 64Mi
+  limits:
+    memory: 256Mi
+
+# HTTP probes on the `http` port. Set `spec` to replace a probe body
+# verbatim (exec, grpc, tcpSocket), or `enabled: false` to drop it.
+probes:
+  liveness:
+    enabled: true
+    path: /healthz
+    initialDelaySeconds: 5
+    periodSeconds: 10
+    timeoutSeconds: 3
+    failureThreshold: 3
+    spec: {}
+  readiness:
+    enabled: true
+    path: /readyz
+    initialDelaySeconds: 2
+    periodSeconds: 5
+    timeoutSeconds: 3
+    failureThreshold: 3
+    spec: {}
+  startup:
+    enabled: true
+    path: /healthz
+    initialDelaySeconds: 0
+    periodSeconds: 2
+    failureThreshold: 30
+    spec: {}
+
+lifecycle: {}
+# Give workers (e.g. Temporal) time to drain in-flight work on shutdown.
+terminationGracePeriodSeconds: null
+
+podAnnotations: {}
+  # Annotation-based scrape (Alloy DaemonSet):
+  # prometheus.io/scrape: "true"
+  # prometheus.io/port: "8080"
+  # prometheus.io/path: /metrics
+podLabels: {}
+
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 65532
+  runAsGroup: 65532
+  fsGroup: 65532
+  seccompProfile:
+    type: RuntimeDefault
+
+securityContext:
+  allowPrivilegeEscalation: false
+  capabilities:
+    drop:
+      - ALL
+  readOnlyRootFilesystem: true
+  runAsNonRoot: true
+  runAsUser: 65532
+
+# With EKS Pod Identity no annotation is needed: the association matches on
+# namespace + ServiceAccount name (fullname unless `name` is set). For IRSA
+# set eks.amazonaws.com/role-arn in annotations.
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+  automount: false
+
+autoscaling:
+  enabled: false
+  minReplicas: 2
+  maxReplicas: 6
+  targetCPUUtilizationPercentage: 70
+  targetMemoryUtilizationPercentage: 80
+  behavior: {}
+
+podDisruptionBudget:
+  enabled: false
+  minAvailable: 1
+  # maxUnavailable: 1
+
+# Prometheus Operator scrape config. Requires service.enabled.
+serviceMonitor:
+  enabled: false
+  namespace: ""
+  path: /metrics
+  interval: 30s
+  scrapeTimeout: 10s
+  labels: {}
+  relabelings: []
+  metricRelabelings: []
+
+# Gateway API HTTPRoute. Requires service.enabled, the Gateway API CRDs and
+# an existing Gateway.
+httpRoute:
+  enabled: false
+  annotations: {}
+  labels: {}
+  parentRefs: []
+    # - name: gateway
+    #   namespace: istio-system
+    #   sectionName: https
+  hostnames: []
+  paths:
+    - path: /
+      pathType: PathPrefix
+  filters: []
+  timeouts: {}
+    # request: 30s
+    # backendRequest: 30s
+
+# Extra containers, passed through tpl (so {{ include "microservice.fullname" . }} works).
+initContainers: []
+extraContainers: []
+
+nodeSelector: {}
+tolerations: []
+affinity: {}
+topologySpreadConstraints: []
+
+# Extra volume mounts / volumes (e.g. an emptyDir on /tmp, TLS bundles).
+volumeMounts: []
+volumes: []
+
+# One-off manifests rendered alongside the chart, as maps or YAML strings,
+# passed through tpl. Use this before forking the chart.
+extraObjects: []
+  # - apiVersion: v1
+  #   kind: ConfigMap
+  #   metadata:
+  #     name: '{{ include "microservice.fullname" . }}-extra'
+  #   data:
+  #     key: value

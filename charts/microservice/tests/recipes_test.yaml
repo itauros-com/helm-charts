@@ -1,0 +1,96 @@
+suite: README recipes
+templates:
+  - templates/deployment.yaml
+  - templates/extra-objects.yaml
+release:
+  name: orders
+values:
+  - ../ci/recipes-values.yaml
+tests:
+  - it: renders the migration Job as a pre-install/pre-upgrade hook
+    template: templates/extra-objects.yaml
+    documentSelector:
+      path: kind
+      value: Job
+    asserts:
+      - equal:
+          path: metadata.name
+          value: orders-migrate
+      - equal:
+          path: metadata.annotations["helm.sh/hook"]
+          value: pre-install,pre-upgrade
+      - equal:
+          path: metadata.annotations["helm.sh/hook-delete-policy"]
+          value: before-hook-creation
+      - equal:
+          path: spec.backoffLimit
+          value: 0
+      # The chart's ServiceAccount does not exist yet on first install.
+      - equal:
+          path: spec.template.spec.serviceAccountName
+          value: default
+
+  - it: keeps Job and CronJob pods out of the Service and PDB selectors
+    template: templates/extra-objects.yaml
+    asserts:
+      - notExists:
+          path: spec.template.metadata.labels["app.kubernetes.io/name"]
+        documentSelector:
+          path: kind
+          value: Job
+      - notExists:
+          path: spec.jobTemplate.spec.template.metadata.labels["app.kubernetes.io/name"]
+        documentSelector:
+          path: kind
+          value: CronJob
+
+  - it: gives the migration container the main container's env
+    template: templates/extra-objects.yaml
+    documentSelector:
+      path: kind
+      value: Job
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].image
+          value: registry.example.com/orders-api:v2.0.0
+      - equal:
+          path: spec.template.spec.containers[0].env
+          value: &env
+            - name: ORDERS_DB_NAME
+              value: orders
+            - name: ORDERS_AUTH_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: orders-auth
+                  key: token
+      - equal:
+          path: spec.template.spec.containers[0].envFrom
+          value: &envFrom
+            - secretRef:
+                name: orders-db-credentials
+
+  - it: gives the CronJob container the main container's env
+    template: templates/extra-objects.yaml
+    documentSelector:
+      path: kind
+      value: CronJob
+    asserts:
+      - equal:
+          path: spec.jobTemplate.spec.template.spec.containers[0].env
+          value: *env
+      - equal:
+          path: spec.jobTemplate.spec.template.spec.containers[0].envFrom
+          value: *envFrom
+      - equal:
+          path: spec.jobTemplate.spec.template.spec.serviceAccountName
+          value: orders
+
+  - it: renders the same env on the Deployment
+    template: templates/deployment.yaml
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].env
+          value: *env
+      - equal:
+          path: spec.template.spec.containers[0].envFrom
+          value: *envFrom

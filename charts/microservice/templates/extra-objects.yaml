@@ -1,0 +1,9 @@
+{{- /* One-off manifests rendered through tpl, as maps or YAML strings */ -}}
+{{- range .Values.extraObjects }}
+---
+{{- if typeIs "string" . }}
+{{ tpl . $ }}
+{{- else }}
+{{ tpl (toYaml .) $ }}
+{{- end }}
+{{- end }}

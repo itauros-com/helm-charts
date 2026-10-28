@@ -1,0 +1,10 @@
+apiVersion: v2
+name: microservice
+description: Stateless single-container workload (HTTP API or worker) with hardened defaults
+type: application
+version: 0.1.0
+kubeVersion: ">=1.27.0-0"
+keywords:
+  - microservice
+  - api
+  - worker

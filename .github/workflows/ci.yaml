@@ -1,0 +1,62 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  commits:
+    name: Conventional commits
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request'
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - uses: jdx/mise-action@v5
+
+      # Versions are computed from these messages on merge.
+      - name: Check commits
+        env:
+          BASE: ${{ github.event.pull_request.base.sha }}
+          HEAD: ${{ github.event.pull_request.head.sha }}
+        run: cog check "$BASE..$HEAD"
+
+      # With squash merge the PR title becomes the commit message.
+      - name: Check PR title
+        env:
+          TITLE: ${{ github.event.pull_request.title }}
+        run: cog verify "$TITLE"
+
+  test:
+    name: Lint and test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: jdx/mise-action@v5
+
+      - name: Install helm-unittest
+        run: helm plugin install https://github.com/helm-unittest/helm-unittest.git --verify=false
+
+      - name: Lint and validate
+        run: |
+          set -euo pipefail
+          for chart in charts/*/; do
+            for values in "$chart"ci/*-values.yaml; do
+              echo "::group::$values"
+              helm lint --strict "$chart" -f "$values"
+              # CRDs (ServiceMonitor, HTTPRoute) are validated against the
+              # community catalog.
+              helm template ci "$chart" -f "$values" \
+                | kubeconform -strict -summary \
+                    -schema-location default \
+                    -schema-location 'https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/{{.Group}}/{{.ResourceKind}}_{{.ResourceAPIVersion}}.json'
+              echo "::endgroup::"
+            done
+          done
+
+      - name: Unit tests
+        run: helm unittest charts/*

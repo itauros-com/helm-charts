@@ -1,0 +1,32 @@
+# HTTP API with every optional resource enabled.
+image:
+  repository: registry.example.com/example-api
+  tag: v1.2.3
+partOf: example
+component: api
+env:
+  APP_LOG_LEVEL: info
+autoscaling:
+  enabled: true
+podDisruptionBudget:
+  enabled: true
+serviceMonitor:
+  enabled: true
+httpRoute:
+  enabled: true
+  parentRefs:
+    - name: gateway
+      namespace: istio-system
+  hostnames:
+    - api.example.com
+podAnnotations:
+  prometheus.io/scrape: "true"
+extraEnv:
+  - name: APP_AUTH_TOKEN
+    valueFrom:
+      secretKeyRef:
+        name: example-auth
+        key: token
+extraEnvFrom:
+  - secretRef:
+      name: example-db

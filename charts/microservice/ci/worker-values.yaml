@@ -1,0 +1,17 @@
+# Worker: no Service, no HTTP probes, longer shutdown.
+image:
+  repository: registry.example.com/example-worker
+  tag: v0.4.0
+component: worker
+args: ["worker"]
+containerPort: null
+service:
+  enabled: false
+probes:
+  liveness:
+    enabled: false
+  readiness:
+    enabled: false
+  startup:
+    enabled: false
+terminationGracePeriodSeconds: 120

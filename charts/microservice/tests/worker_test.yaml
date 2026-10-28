@@ -1,0 +1,48 @@
+suite: worker profile
+release:
+  name: worker
+values:
+  - ../ci/worker-values.yaml
+tests:
+  - it: renders no Service
+    template: templates/service.yaml
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: renders a Deployment with no ports and no probes
+    template: templates/deployment.yaml
+    asserts:
+      - notExists:
+          path: spec.template.spec.containers[0].ports
+      - notExists:
+          path: spec.template.spec.containers[0].livenessProbe
+      - notExists:
+          path: spec.template.spec.containers[0].readinessProbe
+      - notExists:
+          path: spec.template.spec.containers[0].startupProbe
+      - equal:
+          path: spec.template.spec.terminationGracePeriodSeconds
+          value: 120
+      - equal:
+          path: spec.template.metadata.labels["app.kubernetes.io/component"]
+          value: worker
+
+  - it: rejects an HTTPRoute without a Service
+    template: templates/deployment.yaml
+    set:
+      httpRoute.enabled: true
+      # Otherwise httproute.yaml fails first on the missing parentRefs.
+      httpRoute.parentRefs:
+        - name: gateway
+    asserts:
+      - failedTemplate:
+          errorMessage: httpRoute.enabled requires service.enabled
+
+  - it: rejects a ServiceMonitor without a Service
+    template: templates/deployment.yaml
+    set:
+      serviceMonitor.enabled: true
+    asserts:
+      - failedTemplate:
+          errorMessage: serviceMonitor.enabled requires service.enabled

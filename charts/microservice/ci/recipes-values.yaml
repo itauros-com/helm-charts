@@ -1,0 +1,100 @@
+# The README recipes (migration Job + CronJob), kept here verbatim so CI
+# lints and validates them on every chart change.
+#
+# Inside a `|` block YAML strips the common indentation, so nindent counts
+# from the snippet's left margin (apiVersion = column 0), not from this file.
+image:
+  repository: registry.example.com/orders-api
+  tag: v2.0.0
+args: ["serve"]
+env:
+  ORDERS_DB_NAME: orders
+extraEnv:
+  - name: ORDERS_AUTH_TOKEN
+    valueFrom:
+      secretKeyRef:
+        name: orders-auth
+        key: token
+extraEnvFrom:
+  - secretRef:
+      name: orders-db-credentials
+
+extraObjects:
+  # -- Recipe: migration Job ------------------------------------------------
+  - |
+    apiVersion: batch/v1
+    kind: Job
+    metadata:
+      name: {{ include "microservice.fullname" . }}-migrate
+      labels:
+        {{- include "microservice.labels" . | nindent 4 }}
+      annotations:
+        helm.sh/hook: pre-install,pre-upgrade
+        helm.sh/hook-delete-policy: before-hook-creation
+    spec:
+      backoffLimit: 0
+      activeDeadlineSeconds: 600
+      template:
+        metadata:
+          labels:
+            app.kubernetes.io/component: migration
+        spec:
+          restartPolicy: Never
+          serviceAccountName: default
+          automountServiceAccountToken: false
+          {{- with .Values.imagePullSecrets }}
+          imagePullSecrets:
+            {{- toYaml . | nindent 8 }}
+          {{- end }}
+          securityContext:
+            {{- toYaml .Values.podSecurityContext | nindent 8 }}
+          containers:
+            - name: migrate
+              image: {{ include "microservice.image" . }}
+              args: ["migrate", "up"]
+              {{- include "microservice.containerEnv" . | nindent 10 }}
+              resources:
+                {{- toYaml .Values.resources | nindent 12 }}
+              securityContext:
+                {{- toYaml .Values.securityContext | nindent 12 }}
+
+  # -- Recipe: CronJob ------------------------------------------------------
+  - |
+    apiVersion: batch/v1
+    kind: CronJob
+    metadata:
+      name: {{ include "microservice.fullname" . }}-sync
+      labels:
+        {{- include "microservice.labels" . | nindent 4 }}
+    spec:
+      schedule: "0 * * * *"
+      concurrencyPolicy: Forbid
+      successfulJobsHistoryLimit: 1
+      failedJobsHistoryLimit: 3
+      jobTemplate:
+        spec:
+          backoffLimit: 2
+          activeDeadlineSeconds: 1800
+          template:
+            metadata:
+              labels:
+                app.kubernetes.io/component: sync
+            spec:
+              restartPolicy: Never
+              serviceAccountName: {{ include "microservice.serviceAccountName" . }}
+              automountServiceAccountToken: {{ .Values.serviceAccount.automount }}
+              {{- with .Values.imagePullSecrets }}
+              imagePullSecrets:
+                {{- toYaml . | nindent 12 }}
+              {{- end }}
+              securityContext:
+                {{- toYaml .Values.podSecurityContext | nindent 12 }}
+              containers:
+                - name: sync
+                  image: {{ include "microservice.image" . }}
+                  args: ["sync"]
+                  {{- include "microservice.containerEnv" . | nindent 14 }}
+                  resources:
+                    {{- toYaml .Values.resources | nindent 16 }}
+                  securityContext:
+                    {{- toYaml .Values.securityContext | nindent 16 }}

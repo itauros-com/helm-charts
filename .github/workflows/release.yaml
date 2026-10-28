@@ -1,0 +1,54 @@
+name: Release
+
+# Every push to main bumps the charts touched by conventional commits since
+# their last tag: Chart.yaml version + CHANGELOG.md, one bump commit, one
+# <chart>-<version> tag per chart. Argo CD Applications pin these tags.
+
+on:
+  push:
+    branches: [main]
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  bump:
+    name: Version charts
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0   # cog reads the whole history and every tag
+
+      - uses: jdx/mise-action@v5
+
+      - name: Bump changed charts
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          # On an already tagged HEAD (bootstrap, re-run) cog counts the
+          # tagged commit again and would bump a second time.
+          if [ -n "$(git tag --points-at HEAD --list '*-*.*.*')" ]; then
+            echo "HEAD is already released."
+            exit 0
+          fi
+
+          before=$(git rev-parse HEAD)
+          cog bump --auto --skip-ci
+          if [ "$(git rev-parse HEAD)" = "$before" ]; then
+            echo "No chart changes that require a release."
+            exit 0
+          fi
+
+          # cog creates lightweight tags, which --follow-tags would skip.
+          tags=$(git tag --points-at HEAD)
+          git push --atomic origin HEAD:main $(printf 'refs/tags/%s ' $tags)
+
+          for tag in $tags; do
+            echo "### Released \`$tag\`" >> "$GITHUB_STEP_SUMMARY"
+          done

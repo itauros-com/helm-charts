@@ -1,0 +1,13 @@
+{{ include "microservice.fullname" . }} has been deployed ({{ include "microservice.image" . }}).
+{{- if .Values.service.enabled }}
+
+Inside the cluster:
+  http://{{ include "microservice.fullname" . }}.{{ .Release.Namespace }}.svc:{{ .Values.service.port }}
+{{- end }}
+{{- if .Values.httpRoute.enabled }}
+
+Exposed via HTTPRoute on: {{ join ", " .Values.httpRoute.hostnames | default "(all listener hostnames)" }}
+{{- end }}
+
+Tail the logs:
+  kubectl -n {{ .Release.Namespace }} logs -f deploy/{{ include "microservice.fullname" . }}

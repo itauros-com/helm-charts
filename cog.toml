@@ -1,0 +1,28 @@
+# Conventional commits -> one version per chart, bumped on every push to main
+# (see .github/workflows/release.yaml). Tags: <chart>-<version>.
+branch_whitelist = ["main"]
+generate_mono_repository_global_tag = false
+monorepo_version_separator = "-"
+
+# Same release rules as the application repositories.
+[commit_types]
+refactor = { changelog_title = "Refactoring", bump_patch = true }
+perf = { changelog_title = "Performance", bump_patch = true }
+build = { changelog_title = "Build", bump_patch = true }
+
+# Commit hashes, diffs and authors as GitHub links. Unmapped authors appear
+# by git name.
+[changelog]
+template = "remote"
+package_template = "remote"
+remote = "github.com"
+owner = "itauros-com"
+repository = "helm-charts"
+authors = [
+  { signature = "Angelo Pettinelli", username = "pettinz" },
+]
+
+[monorepo.packages.microservice]
+path = "charts/microservice"
+changelog_path = "charts/microservice/CHANGELOG.md"
+pre_bump_hooks = ["yq -i '.version = \"{{version}}\"' Chart.yaml"]
