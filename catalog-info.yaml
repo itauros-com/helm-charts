@@ -1,0 +1,14 @@
+# Read by the developer portal's discovery (every repository's catalog-info.yaml).
+apiVersion: backstage.io/v1alpha1
+kind: Component
+metadata:
+  name: helm-charts
+  description: Shared Helm charts for itauros workloads, consumed by Argo CD pinned to a release tag.
+  annotations:
+    github.com/project-slug: itauros-com/helm-charts
+  tags: [helm, kubernetes]
+spec:
+  type: library
+  lifecycle: production
+  owner: group:default/platform
+  system: platform
